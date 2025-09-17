@@ -45,6 +45,7 @@ class Sentinel(Object):
 
     def _sentinel_pebble_ready(self, event) -> None:
         """Handle pebble ready event for sentinel container."""
+        self._store_certificates()
         self._update_sentinel_layer()
 
         # update layer should leave the unit in active status
@@ -115,8 +116,29 @@ class Sentinel(Object):
             quorum=self.expected_quorum,
             master_password=self.charm._get_password(),
             sentinel_password=self.charm.get_sentinel_password(),
+            enable_tls=self.charm.config["enable-tls"],
+            storage_path=self.charm._storage_path,
         )
         self._copy_file(SENTINEL_CONFIG_PATH, rendered, "sentinel")
+
+    def _store_certificates(self) -> None:
+        """Copy the TLS certificates to the sentinel container."""
+        # Get a list of valid paths
+        cert_paths = list(filter(None, self.charm._certificates))
+        container = self.charm.unit.get_container("sentinel")
+
+        # Copy the files from the resources location to the sentinel container.
+        # TODO handle error case
+        for cert_path in cert_paths:
+            with open(cert_path, "r") as f:
+                container.push(
+                    (f"{self.charm._storage_path}/{cert_path.name}"),
+                    f,
+                    make_dirs=True,
+                    permissions=0o600,
+                    user="redis",
+                    group="redis",
+                )
 
     def _copy_file(self, path: str, rendered: str, container: str) -> None:
         """Copy a string to a path on a container.
@@ -201,6 +223,8 @@ class Sentinel(Object):
             password=self.charm.get_sentinel_password(),
             socket_timeout=timeout,
             decode_responses=True,
+            ssl=self.charm.config["enable-tls"],
+            ssl_ca_certs=self.charm._retrieve_resource("ca-cert-file"),
         )
         try:
             yield client

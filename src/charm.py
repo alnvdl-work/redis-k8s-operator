@@ -125,6 +125,7 @@ class RedisK8sCharm(CharmBase):
         will trigger this event.
         """
         self._store_certificates()
+        self.sentinel._store_certificates()
 
         # NOTE: This is the case of a single unit deployment. If that's the case, the charm
         # doesn't need to check for failovers or figure out who the master is.

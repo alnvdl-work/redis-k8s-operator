@@ -19,6 +19,7 @@ from redis import Redis
 from redis.exceptions import RedisError
 
 from charm import RedisK8sCharm
+from literals import SENTINEL_CONFIG_PATH, SENTINEL_PORT, WORKING_DIR
 
 APPLICATION_DATA = {
     "leader-host": "leader-host",
@@ -378,6 +379,34 @@ class TestCharm(TestCase):
         self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
         self.assertEqual(self.harness.charm.app.status, ActiveStatus())
         self.assertEqual(self.harness.get_workload_version(), "6.0.11")
+
+        found_sentinel_plan = self.harness.get_container_pebble_plan("sentinel").to_dict()
+        expected_sentinel_plan = {
+            "services": {
+                "sentinel": {
+                    "override": "replace",
+                    "summary": "Sentinel service",
+                    "command": f"redis-server {SENTINEL_CONFIG_PATH} --sentinel",
+                    "user": "redis",
+                    "group": "redis",
+                    "startup": "enabled",
+                },
+            },
+        }
+        self.assertEqual(found_sentinel_plan, expected_sentinel_plan)
+        container = self.harness.model.unit.get_container("sentinel")
+        service = container.get_service("sentinel")
+        self.assertTrue(service.is_running())
+
+        sentinel_container = self.harness.model.unit.get_container("sentinel")
+        sentinel_config = sentinel_container.pull(SENTINEL_CONFIG_PATH).read()
+        self.assertIn("port 0", sentinel_config)
+        self.assertIn(f"tls-port {SENTINEL_PORT}", sentinel_config)
+        self.assertIn(f'tls-cert-file "{WORKING_DIR}redis.crt"', sentinel_config)
+        self.assertIn(f'tls-key-file "{WORKING_DIR}redis.key"', sentinel_config)
+        self.assertIn(f'tls-ca-cert-file "{WORKING_DIR}ca.crt"', sentinel_config)
+        self.assertIn("tls-auth-clients optional", sentinel_config)
+        self.assertIn("tls-replication yes", sentinel_config)
 
     @mock.patch.object(Redis, "execute_command")
     def test_non_leader_unit_as_replica(self, execute_command):
